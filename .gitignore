@@ -1,0 +1,14 @@
+
+# ignore index files with js extension
+index*.js
+
+# ignore node_modules
+/node_modules
+
+
+# ignore image and data sub-dir
+/public/images
+/public/data
+
+/public/stylesheets/grid*.css
+/views/grid*.*

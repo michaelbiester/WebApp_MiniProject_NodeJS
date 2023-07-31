@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor_6_WS</title>
+    <link rel="stylesheet" href="/stylesheets/webApp_mini_project_styles.css">
+    <script src="/javascript/mqtt.min.js"></script>
+</head>
+<body>
+    <div class="wrapper">
+        <div class="header">
+            <h2>Monitoring Utility</h2>
+        </div>
+        <div class="control">
+            <button id="btn_ws_connect">Connect with Websocket</button>
+            <button id="btn_mqtt_connect">Connect MQTT</button>
+            <button id="btn_mqtt_disconnect">Disconnect MQTT</button>
+            <br>
+            <textarea id="txt_connect", rows="3", cols="50"></textarea>
+        </div>
+            
+        <div class="status">
+            <label>status infos:</label>
+            <textarea id="txt_status", rows="6", cols="50"></textarea>
+        </div>
+        <div class="subscribe">
+            <button id="btn_mqtt_subscribe">Subscribe</button>
+            <button id="btn_mqtt_unsubscribe">Unsubscribe</button>
+            <br>
+            <label>messages:</label>
+
+            <table id="tb_message">
+                <col class="col1">
+                <col class="col2">
+                <col class="col3">
+                <tr><th>Message Type</th><th>Value</th><th>Date</th></tr>
+                <tr id="random"><th>Random</th><th>--</th><th>--</th></tr>
+                <tr id="light"><th>Light</th><th>--</th><th>--</th></tr>
+                <tr id="temp"><th>Temperature</th><th>--</th><th>--</th></tr>
+                <tr id="pir"><th>PIR</th><th>--</th><th>--</th></tr>
+                <tr id="image"><th>Image</th><th>--</th><th>--</th></tr>
+            </table>
+        </div>
+        <div class="image">
+            <button id="btn_newest_image">Newest Image</button>
+            <br>
+            <img id="new_image" alt="new image">
+            
+        </div>
+    </div>
+    <div class="footer1">
+        <table id="tb_status">
+            <tr>
+                <th>Websocket Connection</th>
+                <th>MQTT Connection</th>
+                <th>MQTT Subscription</th>
+            </tr>
+            <tr>
+                <td id="ws_status">--</td>
+                <td id="mqtt_connection">--</td>
+                <td id="mqtt_subscribe">--</td>
+            </tr>
+        </table>
+    </div>
+
+
+
+<script>
+    const clientId = 'mqttjs_' + '4711';
+    const host = `ws://${location.hostname}:15675/ws`; 
+
+    const options = {
+    keepalive: 60,
+    clientId: clientId,
+    protocolId: 'MQTT',
+    protocolVersion: 4,
+    username: 'rpi_monitor',
+    password: 'rpi_monitor',
+    clean: true,
+    reconnectPeriod: 10000,
+    connectTimeout: 30 * 1000,
+    will: {
+        topic: 'WillMsg',
+        payload: 'Connection Closed abnormally..!',
+        qos: 0,
+        retain: false
+    },
+    };
+
+    // add a delay function
+    function delay(time) {
+        return new Promise(resolve => setTimeout(resolve, time));
+    }
+
+    let mqtt_client;
+    let websocket;
+    let fetching_image = false;
+
+    // buttons
+    const btn_ws_connect = document.getElementById("btn_ws_connect");
+    const btn_mqtt_connect = document.getElementById("btn_mqtt_connect");
+    const btn_mqtt_disconnect = document.getElementById("btn_mqtt_disconnect");
+    const btn_mqtt_subscribe = document.getElementById("btn_mqtt_subscribe");
+    const btn_mqtt_unsubscribe = document.getElementById("btn_mqtt_unsubscribe");
+    const btn_newest_image = document.getElementById("btn_newest_image");
+    
+    // text displays
+    const txt_connect = document.getElementById("txt_connect");
+    const txt_status = document.getElementById("txt_status");
+
+    // table cells (status)
+    const td_ws_status = document.getElementById('ws_status');
+    const td_mqtt_connection = document.getElementById('mqtt_connection');
+    const td_mqtt_subscribe = document.getElementById('mqtt_subscribe');
+
+    // table message data
+    // child elements of table rows can be access using .children[i]
+    const tr_random = document.getElementById("random");
+    const td_random_value = tr_random.children[1];
+    const td_random_timestamp = tr_random.children[2];
+
+    const tr_light = document.getElementById("light");
+    const td_light_value = tr_light.children[1];
+    const td_light_timestamp = tr_light.children[2];
+
+    const tr_temp = document.getElementById("temp");
+    const td_temp_value = tr_temp.children[1];
+    const td_temp_timestamp = tr_temp.children[2];
+
+    const tr_pir = document.getElementById("pir");
+    const td_pir_value = tr_pir.children[1];
+    const td_pir_timestamp = tr_pir.children[2];
+
+    const tr_image = document.getElementById("image");
+    const td_image_value = tr_image.children[1];
+    const td_image_timestamp = tr_image.children[2];
+
+    // image
+    const new_image = document.getElementById('new_image');
+
+    // websocket 
+    btn_ws_connect.addEventListener('click', () => {
+        if (typeof(websocket) === 'undefined') {
+            websocket = new WebSocket(`ws://${location.hostname}:8001`);
+            console.log(`creating a websocket object: ws://${location.hostname}:8001`);
+        }
+        // delay to wait for websocket to become operational (allowing to send and receive)
+        delay(2000).then( () => {
+            console.log('show readyState after delay');
+            let wsState = websocket.readyState;
+            txt_connect.textContent = `readyState: ${wsState}`;
+            // update status bar
+            td_ws_status.textContent = wsState;
+            if (wsState == 1) {
+                td_ws_status.style.backgroundColor = '#81f07a'; // green
+            } else {
+                td_ws_status.style.backgroundColor = '#ffa500'; // orange
+            }
+        });
+
+        // add handler for reception of websocket messages
+        websocket.addEventListener("message", ({ data }) => {
+            if (typeof(data) === 'string') {
+                // const event = JSON.parse(data);
+                console.log(`from server: ${data} with data type: ${typeof(data)}`);
+                txt_status.textContent = data;
+            }
+            else {
+                console.log(`from server with data type: ${typeof(data)}`)
+                const objectUrl = URL.createObjectURL(data);
+                new_image.src = objectUrl;
+                console.log(`received image with: ${data.size} bytes`);
+                URL.revokeObjectURL(objectUrl);
+            }
+        });
+
+        // other handlers for websockets
+        websocket.addEventListener("open", ({data}) => {
+            alert(`websocket open -> readyState: ${websocket.readyState}`);
+        });
+        websocket.addEventListener("error", ({data}) => {
+            alert(`websocket error -> readyState: ${websocket.readyState}`);
+        });
+        websocket.addEventListener("close", ({data}) => {
+            alert(`websocket close -> readyState: ${websocket.readyState}`);
+        });
+    });
+
+
+    btn_mqtt_connect.addEventListener('click', (ev) => {
+        console.log(`trying to connect to MQTT: host=${host} options=${options}`);
+        mqtt_client = mqtt.connect(host, options);
+        console.log(`connected tp MQTT broker: ${mqtt_client.connected}`);
+        console.log(mqtt_client);
+
+        mqtt_client.on('error', (err) => {
+            console.log('Connection error: ', err)
+            mqtt_client.end()
+            // update status bar
+            td_mqtt_connection.textContent = 'error';
+            td_mqtt_connection.style.backgroundColor = '#ffa500'; // orange
+            });
+    
+        mqtt_client.on('reconnect', () => {
+        console.log('Reconnecting...')
+        });
+    
+        mqtt_client.on('connect', () => {
+            console.log('Client connected:' + clientId)
+            // update status bar
+            td_mqtt_connection.textContent = 'connected';
+            td_mqtt_connection.style.backgroundColor = '#81f07a'; // orange
+        });
+    
+        // Received
+        mqtt_client.on('message', (topic, message, packet) => {
+            // 
+            switch (topic) {
+                case "rpi/random_data":
+                    let random_data = JSON.parse(message.toString())
+                    console.log(`random_data: ${message.toString()}`);
+                    td_random_value.textContent = random_data.value;
+                    td_random_timestamp.textContent = random_data.timestamp;
+                    break;
+                case "rpi/light_sensor":
+                    let light_sensor = JSON.parse(message.toString())
+                    console.log(`light_sensor: ${message.toString()}`);
+                    td_light_value.textContent = light_sensor.value;
+                    td_light_timestamp.textContent = light_sensor.timestamp;
+                    break;
+                case "rpi/temp_sensor":
+                    let temp_sensor = JSON.parse(message.toString())
+                    console.log(`temp_sensor: ${message.toString()}`);
+                    td_temp_value.textContent = temp_sensor.value;
+                    td_temp_timestamp.textContent = temp_sensor.timestamp;
+                    break;
+                case "rpi/pir_sensor":
+                    let pir_sensor = JSON.parse(message.toString())
+                    console.log(`pir_sensor: ${message.toString()}`);
+                    td_pir_value.textContent = pir_sensor.value;
+                    td_pir_timestamp.textContent = pir_sensor.timestamp;
+                    break;
+                case "rpi/camera":
+                    let rpi_camera = JSON.parse(message.toString())
+                    console.log(`rpi_camera: ${message.toString()}`);
+                    td_image_value.textContent = rpi_camera.img;
+                    td_image_timestamp.textContent = rpi_camera.timestamp;
+                    // getting image
+                    btn_newest_image.click();
+                    break;
+                case "rpi/new_image":
+                    console.log(`unhandled topic: ${topic}`);
+                    break;
+                default:
+                    console.log(`unknown topic: ${topic}`);
+            }
+        });
+    });
+
+    btn_mqtt_disconnect.addEventListener('click', (ev) => {
+        if (mqtt_client.connected == true) {
+            mqtt_client.end();
+            console.log('disconnected from MQTT broker');
+        } else {
+            console.log('already disconnected from MQTT broker');
+        }
+    });
+
+    btn_mqtt_subscribe.addEventListener('click', (ev) => {
+        mqtt_client.subscribe('rpi/#', { qos: 1 });
+        console.log('subscribed to MQTT');
+        // update status bar
+        td_mqtt_subscribe.textContent = 'subscribed';
+        td_mqtt_subscribe.style.backgroundColor = '#81f07a'; // green
+    });
+
+    btn_mqtt_unsubscribe.addEventListener('click', (ev) => {
+        mqtt_client.unsubscribe('rpi/#', (error) => {
+            if (error) {
+                console.log(error);
+            } else {
+                console.log('unsubscribed');
+                // update status bar
+            td_mqtt_subscribe.textContent = 'un-subscribed';
+            td_mqtt_subscribe.style.backgroundColor = '#ffa500'; // orange
+            }
+        });
+    });
+
+    btn_newest_image.addEventListener('click', (ev) => {
+        txt_status.textContent = "get image from server and display";
+        // getting image
+        let event = {
+            type: 'get_image',
+            value: 'new image',
+        };
+        new_image.src = "//0";
+        console.log(`send event: ${event}`);
+        websocket.send(JSON.stringify(event));   
+    });
+
+
+</script>
+
+    
+</body>
+</html>
